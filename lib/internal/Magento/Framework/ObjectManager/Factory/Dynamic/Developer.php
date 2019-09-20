@@ -21,17 +21,21 @@ class Developer extends \Magento\Framework\ObjectManager\Factory\AbstractFactory
      */
     protected function _resolveArguments($requestedType, array $parameters, array $arguments = [])
     {
-        // Get default arguments from config, merge with supplied arguments
-        $defaultArguments = $this->config->getArguments($requestedType);
-        if (is_array($defaultArguments)) {
-            if (count($arguments)) {
-                $arguments = array_replace($defaultArguments, $arguments);
-            } else {
-                $arguments = $defaultArguments;
+        try {
+            // Get default arguments from config, merge with supplied arguments
+            $defaultArguments = $this->config->getArguments($requestedType);
+            if (is_array($defaultArguments)) {
+                if (count($arguments)) {
+                    $arguments = array_replace($defaultArguments, $arguments);
+                } else {
+                    $arguments = $defaultArguments;
+                }
             }
-        }
 
-        return $this->resolveArgumentsInRuntime($requestedType, $parameters, $arguments);
+            return $this->resolveArgumentsInRuntime($requestedType, $parameters, $arguments);
+        } catch (\Throwable $e) {
+            throw new \LogicException('Error when resolving arguments for type: ' . $requestedType, 0, $e);
+        }
     }
 
     /**
@@ -44,25 +48,29 @@ class Developer extends \Magento\Framework\ObjectManager\Factory\AbstractFactory
      */
     public function create($requestedType, array $arguments = [])
     {
-        $type = $this->config->getInstanceType($requestedType);
-        $parameters = $this->definitions->getParameters($type);
-        if ($parameters == null) {
-            return new $type();
-        }
-        if (isset($this->creationStack[$requestedType])) {
-            $lastFound = end($this->creationStack);
-            $this->creationStack = [];
-            throw new \LogicException("Circular dependency: {$requestedType} depends on {$lastFound} and vice versa.");
-        }
-        $this->creationStack[$requestedType] = $requestedType;
         try {
-            $args = $this->_resolveArguments($requestedType, $parameters, $arguments);
-            unset($this->creationStack[$requestedType]);
-        } catch (\Exception $e) {
-            unset($this->creationStack[$requestedType]);
-            throw $e;
-        }
+            $type = $this->config->getInstanceType($requestedType);
+            $parameters = $this->definitions->getParameters($type);
+            if ($parameters == null) {
+                return new $type();
+            }
+            if (isset($this->creationStack[$requestedType])) {
+                $lastFound = end($this->creationStack);
+                $this->creationStack = [];
+                throw new \LogicException("Circular dependency: {$requestedType} depends on {$lastFound} and vice versa.");
+            }
+            $this->creationStack[$requestedType] = $requestedType;
+            try {
+                $args = $this->_resolveArguments($requestedType, $parameters, $arguments);
+                unset($this->creationStack[$requestedType]);
+            } catch (\Exception $e) {
+                unset($this->creationStack[$requestedType]);
+                throw $e;
+            }
 
-        return $this->createObject($type, $args);
+            return $this->createObject($type, $args);
+        } catch (\Throwable $e) {
+            throw new \LogicException('Error when instantiating object of type: ' . $requestedType, 0, $e);
+        }
     }
 }
